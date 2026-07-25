@@ -1,0 +1,13 @@
+# 实时列出 mentioned_in 为空的 Entity/Concept —— 没人引用的页,待合并或删除。
+# LINT 的"孤儿"检查的活 complement。
+name: Orphan Radar
+icon: "🛰️"
+filters:
+  all:
+    - field: type
+      op: any_of
+      value:
+        - Concept
+        - Entity
+    - field: mentioned_in
+      op: is_empty

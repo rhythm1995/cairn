@@ -1,0 +1,12 @@
+# 实时列出所有 status: Contested 的 Concept —— 矛盾监控的"活切片"。
+# (Tolaria saved view 格式。其他环境:用 grep status:Contested 替代。)
+name: Contested
+icon: "⚠️"
+filters:
+  all:
+    - field: type
+      op: equals
+      value: Concept
+    - field: status
+      op: equals
+      value: Contested

@@ -1,0 +1,12 @@
+# 待消化的 Source(status: Unprocessed)—— PLAN 的输入池。
+# 这里有多少,backlog 就有多深。
+name: Inbox
+icon: "📥"
+filters:
+  all:
+    - field: type
+      op: equals
+      value: Source
+    - field: status
+      op: equals
+      value: Unprocessed
