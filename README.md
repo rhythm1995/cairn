@@ -105,8 +105,9 @@ Concept ──related/contradicts──▶ Concept   ;   Concept ──mentioned
 
 不想每次手动跑 INGEST?`automation/auto-loop.sh` 是一个 inbox-pump 守护:把文件丢进 `inbox/`,它自动按 `AGENTS.md` 消化该源、并转一整圈 loop(MEASURE→LINT→PLAN)。
 
-- 即时触发(fswatch),无 fswatch 时自动退化到 5s 轮询 —— 零依赖也能跑。
-- 权限收口:默认只允许读写文件 + 检索,不给任意 shell。
+- **ingest**:即时触发(fswatch),无 fswatch 时自动退化到 5s 轮询 —— 零依赖也能跑。
+- **删除也会被收拾**:每次 ingest 的 loop 自带 lint,会顺手清掉删节点留下的悬空引用 / 孤儿。只删不增时,`--reconcile` 单独跑 lint + 刷新 `wiki-health`;想完全不管,`--install-reconcile` 每天定时跑(开机/唤醒自动补,不怕那个点没开机)。
+- **权限收口**:默认只允许读写文件 + 检索,不给任意 shell。
 - 你仍掌握"读什么"(往 inbox 丢什么),自动化所有机械活。详见 [`automation/README.md`](./automation/README.md)。
 
 ## 环境适配
