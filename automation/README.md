@@ -45,8 +45,19 @@ echo "# 一篇值得读的文章 ..." > "$CAIRN_VAULT/inbox/my-first-source.md"
 |---|---|
 | `./auto-loop.sh` | 前台守护。fswatch 即时 / poll 回退。`Ctrl-C` 退出。 |
 | `./auto-loop.sh --once` | 只处理当前 `inbox/` 里的 pending 文件,然后退出。适合 cron 或一次性清仓。 |
+| `./auto-loop.sh --reconcile` | 不 ingest,只跑 lint + MEASURE:清理悬空引用 / 孤儿、刷新 `wiki-health`。**删完笔记后跑一下**。 |
 | `./auto-loop.sh --install` | 写入 launchd plist 并加载,开机自启(KeepAlive 崩溃自重启)。 |
 | `DRY_RUN=1 ./auto-loop.sh` | 只走管线(检测→归档),不调用 claude。验证监听与锁用。 |
+
+## 删除怎么办
+
+守护**只管 ingest,不监听删除**——这是有意的:监听整个 vault 的删除会 thrash(每次编辑都是删+建),可能误伤正在编辑的笔记。
+
+Cairn 用 **lint 对账**处理删除,而不是事件反应。你删一个节点 → 留下悬空引用 → 下次 `lint` 检测到并修(剪掉死的 `mentions`/`mentioned_in`、Source 退回 `Unprocessed`、孤儿 Concept 合并/删)。
+
+- **每次 ingest 的 loop 里已经自动跑 lint** —— 所以只要你还在往 `inbox/` 喂源,删除残留会被顺手清掉,无需额外操作。
+- **只删不增**时,手动跑一次对账:`./auto-loop.sh --reconcile`。它只做 lint + 刷新 `wiki-health`,不碰 `inbox/`。
+- **完全不想管**:装每日定时对账 `./auto-loop.sh --install-reconcile`。三重保证"每天一次":① 凌晨定时(默认 04:17,`RECONCILE_HOUR`/`RECONCILE_MINUTE` 改时刻);② **开机/登录时补跑**(`RunAtLoad`——解决"那个点电脑没开机",休眠错过也在唤醒时补);③ **一次/日去重门**(同一天多次开机不重复跑;手动 `--reconcile` 不受限)。与 inbox 守护共用一把锁、互不冲突。成本无感的可选项。
 
 ## 配置(环境变量)
 
@@ -78,11 +89,11 @@ launchd 守护**不继承你登录 shell 的两样东西**,都得显式处理:
 1. **PATH** —— 脚本已在 plist 里写死(`/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin` 等),`claude` / `fswatch` 能被找到。无需手动。
 2. **磁盘访问(TCC)** —— 会卡住人的地方。若 vault 在受保护目录(`~/Desktop`、`~/Documents`、`~/Downloads`),launchd 守护**没有访问权限**,日志报 `Operation not permitted` / `getcwd: cannot access parent directories`,并崩坏重启。
 
-   解决:系统设置 → 隐私与安全性 → **完全磁盘访问权限**,把执行链上的二进制拖进去:
-   - `/bin/bash`(解释器:监听、扫 inbox、归档)
-   - `claude` 本体(它才真正读写笔记)
+   解决:系统设置 → 隐私与安全性 → **完全磁盘访问权限**,把 `/bin/bash` 拖进去通常就够 —— bash 的 FDA 会覆盖它 fork/exec 出的 `claude` 子进程(macOS TCC 按执行链继承,实测有效)。
 
-   Finder 里 `前往 → 前往文件夹` 输 `/bin` 找到 `bash`,**直接拖进 FDA 列表**(用 `+` 文件框常加不进系统二进制,拖拽可靠)。`claude` 同理(先 `which claude` 看路径)。改完重载:`./auto-loop.sh --install`。
+   Finder 里 `前往 → 前往文件夹` 输 `/bin` 找到 `bash`,**直接拖进 FDA 列表**(用 `+` 文件框常加不进系统二进制,拖拽可靠)。改完重载:`./auto-loop.sh --install`。
+
+   极少数情况下若 `claude` 仍单独报权限错,再把 `claude` 本体(`which claude` 看路径)也拖进去 —— 但先别急着加,bash 的 FDA 多半已覆盖。
 
    不想给 FDA?把 vault 放在非保护区(如 `~/kb`),或改用前台 / tmux 跑(继承终端权限)。
 
