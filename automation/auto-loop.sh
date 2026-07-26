@@ -15,7 +15,9 @@
 # 环境变量:
 #   CAIRN_VAULT       必填。vault 根目录(须含 AGENTS.md)
 #   CAIRN_INBOX       可选。投件箱,默认 $CAIRN_VAULT/inbox
-#   CAIRN_PROCESSED   可选。已处理存档,默认 $CAIRN_VAULT/.cairn/processed
+#   CAIRN_RUNTIME     可选。运行时目录(日志/归档/锁),默认 $CAIRN_VAULT/.cairn
+#                     —— Tolaria/Obsidian 这类会递归扫描的 vault,建议设到 vault 外,避免被当笔记索引。
+#   CAIRN_PROCESSED   可选。已处理存档,默认 $CAIRN_RUNTIME/processed
 #   POLL_SECONDS      可选。无 fswatch 时的轮询间隔,默认 5
 #   SETTLE_SECONDS    可选。fswatch 事件沉淀(去抖)窗口,默认 2
 
@@ -24,15 +26,15 @@ set -euo pipefail
 # ────────────────────────── 配置 ──────────────────────────
 : "${CAIRN_VAULT:?❌ 必须设置 CAIRN_VAULT(指向含 AGENTS.md 的 vault 根目录)}"
 CAIRN_INBOX="${CAIRN_INBOX:-$CAIRN_VAULT/inbox}"
-CAIRN_PROCESSED="${CAIRN_PROCESSED:-$CAIRN_VAULT/.cairn/processed}"
+RUNTIME_DIR="${CAIRN_RUNTIME:-$CAIRN_VAULT/.cairn}"
+CAIRN_PROCESSED="${CAIRN_PROCESSED:-$RUNTIME_DIR/processed}"
 POLL_SECONDS="${POLL_SECONDS:-5}"
 SETTLE_SECONDS="${SETTLE_SECONDS:-2}"
-RUNTIME_DIR="$CAIRN_VAULT/.cairn"
 LOG_FILE="$RUNTIME_DIR/auto-loop.log"
 LOCK_DIR="$RUNTIME_DIR/.lock"
 
 # headless claude 允许的工具(收口权限:只读写文件 + 检索,不给任意 shell)。
-# 用 Tolaria MCP 的话,追加如 mcp__tolaria__create_note 等;要完全不限制则改用 --dangerously-skip-permissions。
+# 用 Tolaria MCP 的话,追加如 --allowedTools mcp__tolaria__create_note 等;要完全不限制则改用 --dangerously-skip-permissions。
 ALLOWED_TOOLS=(--allowedTools Read --allowedTools Write --allowedTools Edit --allowedTools Glob --allowedTools Grep)
 
 mkdir -p "$RUNTIME_DIR" "$CAIRN_PROCESSED"
@@ -64,9 +66,8 @@ release_lock() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
 # ────────────────────────── 核心 ──────────────────────────
 ingest_one() {
   local file="$1"
-  # 跳过隐藏文件与目录
-  case "$(basename "$file")" in .*) return 0;; esac
-  [ -f "$file" ] || return 0
+  case "$(basename "$file")" in .*) return 0;; esac   # 跳过隐藏文件
+  [ -f "$file" ] || return 0                           # 跳过目录
 
   log "▶ ingest + loop: $file"
   if [ "${DRY_RUN:-0}" = "1" ]; then
@@ -77,8 +78,10 @@ ingest_one() {
 你正在 Cairn vault "$CAIRN_VAULT" 里执行自动化回路。一个新的源文件出现在:
   $file
 
-严格遵循 $CAIRN_VAULT/AGENTS.md:
-1. ingest("$file") —— 读取该文件。若它还不是合规 Source(type:Source),先用其内容建一个 Source 笔记(status:Unprocessed)再消化:
+先完整读取 $CAIRN_VAULT/AGENTS.md(以及它通过 @ 引入的任何文件),严格按其中的协议执行。
+注意:你不会自动加载 @-import,需要自己 Read 那些被引入的 schema 文件。
+
+1. ingest("$file") —— 读取该源文件。若它还不是合规 Source(type:Source),先用其内容建一个 Source 笔记(status:Unprocessed)再消化:
    建/更新 Summary(TL;DR + Key points + Quotes)、更新触及的 Entity/Concept(双向回填 mentions / mentioned_in)、
    把该 Source 标为 status:Digested 并设 derived_into、更新 index、向 log 追加一行。
 2. loop() —— 刷新 wiki-health(MEASURE,含概念饥饿度等 KPI)、跑 lint、PLAN 决定下一个源并写入 wiki-health §本轮决策。
@@ -121,7 +124,6 @@ watch_fswatch() {
   log "⚡ fswatch 即时模式。监听: $CAIRN_INBOX"
   fswatch -0 --latency "$SETTLE_SECONDS" \
     --event Created --event Updated --event Renamed \
-    --is_file \
     "$CAIRN_INBOX" | while IFS= read -r -d '' _event; do
       # 去抖:吞掉沉淀窗口内的连发事件,再统一处理
       while IFS= read -r -d '' -t "$SETTLE_SECONDS" _; do :; done
@@ -132,10 +134,12 @@ watch_fswatch() {
 # ────────────────────────── launchd 自启 ──────────────────────────
 do_install() {
   preflight
-  local script label plist
+  local script label plist launch_path
   script="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   label="com.cairn.auto-loop"
   plist="$HOME/Library/LaunchAgents/${label}.plist"
+  # launchd 不继承登录 shell 的 PATH —— 显式给出,确保 claude / fswatch 可被守护进程发现
+  launch_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
   cat >"$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -148,7 +152,11 @@ do_install() {
   </array>
   <key>WorkingDirectory</key><string>${CAIRN_VAULT}</string>
   <key>EnvironmentVariables</key>
-  <dict><key>CAIRN_VAULT</key><string>${CAIRN_VAULT}</string></dict>
+  <dict>
+    <key>CAIRN_VAULT</key><string>${CAIRN_VAULT}</string>
+    <key>CAIRN_RUNTIME</key><string>${RUNTIME_DIR}</string>
+    <key>PATH</key><string>${launch_path}</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${RUNTIME_DIR}/launchd.out.log</string>
@@ -159,6 +167,7 @@ EOF
   launchctl unload "$plist" 2>/dev/null || true
   launchctl load -w "$plist" 2>/dev/null || launchctl bootstrap "gui/$(id -u)" "$plist"
   log "✅ launchd 已装: $plist"
+  log "   vault=$CAIRN_VAULT  runtime=$RUNTIME_DIR"
   log "   开机自启 + 崩溃自重启。日志: $RUNTIME_DIR/launchd.{out,err}.log"
   log "   卸载: launchctl unload \"$plist\""
 }
@@ -171,7 +180,7 @@ main() {
     --once)    log "=== 一次性处理 ==="; process_pending; exit 0;;
   esac
   log "=== Cairn auto-loop 启动 ==="
-  log "vault=$CAIRN_VAULT inbox=$CAIRN_INBOX DRY_RUN=${DRY_RUN:-0}"
+  log "vault=$CAIRN_VAULT inbox=$CAIRN_INBOX runtime=$RUNTIME_DIR DRY_RUN=${DRY_RUN:-0}"
   if command -v fswatch >/dev/null 2>&1; then
     watch_fswatch
   else

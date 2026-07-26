@@ -71,6 +71,21 @@ headless 模式下 Claude 没法弹窗征求许可,所以脚本默认**收口工
 - **用 Tolaria MCP**:在脚本的 `ALLOWED_TOOLS` 数组里追加,如 `--allowedTools mcp__tolaria__create_note` 等。
 - **完全不限制**:把 `ALLOWED_TOOLS` 那行换成 `--dangerously-skip-permissions`(仅当你完全信任该 vault、且需要最大灵活度时)。
 
+## macOS:Desktop 与 TCC(用 `--install` 必读)
+
+launchd 守护**不继承你登录 shell 的两样东西**,都得显式处理:
+
+1. **PATH** —— 脚本已在 plist 里写死(`/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin` 等),`claude` / `fswatch` 能被找到。无需手动。
+2. **磁盘访问(TCC)** —— 会卡住人的地方。若 vault 在受保护目录(`~/Desktop`、`~/Documents`、`~/Downloads`),launchd 守护**没有访问权限**,日志报 `Operation not permitted` / `getcwd: cannot access parent directories`,并崩坏重启。
+
+   解决:系统设置 → 隐私与安全性 → **完全磁盘访问权限**,把执行链上的二进制拖进去:
+   - `/bin/bash`(解释器:监听、扫 inbox、归档)
+   - `claude` 本体(它才真正读写笔记)
+
+   Finder 里 `前往 → 前往文件夹` 输 `/bin` 找到 `bash`,**直接拖进 FDA 列表**(用 `+` 文件框常加不进系统二进制,拖拽可靠)。`claude` 同理(先 `which claude` 看路径)。改完重载:`./auto-loop.sh --install`。
+
+   不想给 FDA?把 vault 放在非保护区(如 `~/kb`),或改用前台 / tmux 跑(继承终端权限)。
+
 ## 日志与排错
 
 - 操作日志:`$CAIRN_VAULT/.cairn/auto-loop.log`(claude 的输出也写在这里)。
