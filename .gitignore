@@ -9,3 +9,7 @@ Thumbs.db
 
 # Misc
 *.log
+
+# Cairn automation runtime(本地运行产物,不入库)
+.cairn/
+inbox/

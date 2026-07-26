@@ -101,6 +101,14 @@ Concept ──related/contradicts──▶ Concept   ;   Concept ──mentioned
 
 第一个 Source 通常触及 10–15 个页面。**这是特性,不是 bug**——第一块石头落下,整座 cairn 就开始生长。
 
+## 自动化(可选):连手动触发也省掉
+
+不想每次手动跑 INGEST?`automation/auto-loop.sh` 是一个 inbox-pump 守护:把文件丢进 `inbox/`,它自动按 `AGENTS.md` 消化该源、并转一整圈 loop(MEASURE→LINT→PLAN)。
+
+- 即时触发(fswatch),无 fswatch 时自动退化到 5s 轮询 —— 零依赖也能跑。
+- 权限收口:默认只允许读写文件 + 检索,不给任意 shell。
+- 你仍掌握"读什么"(往 inbox 丢什么),自动化所有机械活。详见 [`automation/README.md`](./automation/README.md)。
+
 ## 环境适配
 
 协议与环境无关;变的只是适配层:
@@ -125,6 +133,9 @@ cairn/
 │   ├── orphan-radar.yml
 │   └── inbox.yml
 ├── examples/minimal/      ← 端到端最小示例(Source → Summary → Concept)
+├── automation/            ← 可选:inbox-pump 守护,丢文件即自动消化 + 转 loop
+│   ├── auto-loop.sh
+│   └── README.md
 └── LICENSE
 ```
 
